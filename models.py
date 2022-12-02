@@ -10,7 +10,7 @@ class User(Base):
 
     Поля
         id                      - int         - идентификатор
-        login                   - text        - логин
+        email                   - text        - логин/email
         hashed_password         - text        - хешированный пароль, сохраненный в base64
         hashed_master_password  - text        - хешированный мастер пароль
         key                     - Key         - ссылка на ключ пользователя
@@ -21,7 +21,7 @@ class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
-    login = Column(String)
+    email = Column(String)
     hashed_password = Column(String)
     hashed_master_password = Column(String)
     key = relationship("AsymmetricKey", back_populates="owner", uselist=False)
@@ -46,8 +46,7 @@ class Safe(Base):
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String)
     description = Column(String)
-    root_group_id = Column(Integer, ForeignKey("groups.id"), index=True)
-    sym_key = relationship("SymmetricKey", back_populates="safe")
+    root_group_id = Column(Integer, ForeignKey("groups.id", ondelete='CASCADE'), index=True)
     users = relationship("UserSafeAssociation", back_populates="safe")
 
 
@@ -71,24 +70,24 @@ class AsymmetricKey(Base):
     owner = relationship("User", back_populates="key")
 
 
-class SymmetricKey(Base):
-    """
-    Объект зашифрованного симметричного сеансового ключа
-
-    Поля
-        id              - int        - идентификатор ключа
-        safe_id         - int        - идентификатор сейфа, что зашифрован этим ключом
-        key_id          - int        - идентификатор ассиметричного ключа, которым зашифрован данный ключ
-        ciphered_key    - int        - зашифрованный ключ
-    """
-
-    __tablename__ = "symmetric_keys"
-
-    id = Column(Integer, primary_key=True, index=True)
-    safe_id = Column(Integer, ForeignKey("safes.id", ondelete="CASCADE"))
-    safe = relationship('Safe', back_populates="sym_key")
-    key_id = Column(Integer, ForeignKey("asymmetric_keys.id", ondelete="CASCADE"))
-    ciphered_key = Column(String)
+# class SymmetricKey(Base):
+#     """
+#     Объект зашифрованного симметричного сеансового ключа
+#
+#     Поля
+#         id              - int        - идентификатор ключа
+#         safe_id         - int        - идентификатор сейфа, что зашифрован этим ключом
+#         key_id          - int        - идентификатор ассиметричного ключа, которым зашифрован данный ключ
+#         ciphered_key    - int        - зашифрованный ключ
+#     """
+#
+#     __tablename__ = "symmetric_keys"
+#
+#     id = Column(Integer, primary_key=True, index=True)
+#     safe_id = Column(Integer, ForeignKey("safes.id", ondelete="CASCADE"))
+#     safe = relationship('Safe', back_populates="sym_key")
+#     key_id = Column(Integer, ForeignKey("asymmetric_keys.id", ondelete="CASCADE"))
+#     ciphered_key = Column(String)
 
 
 class Group(Base):
@@ -118,7 +117,6 @@ class PasswordEntry(Base):
         id          - int       - идентификатор пароля
         group_id    - int       - идентификатор группы
         title       - text      - название пароля
-        description - text      - описание
         login       - text      - логин
         url         - text      - адрес
         notes       - text      - заметки
@@ -140,11 +138,12 @@ class UserSafeAssociation(Base):
 
     __tablename__ = 'user_safe_link'
 
-    user_id = Column(Integer, ForeignKey('users.id'), primary_key=True)
-    safe_id = Column(Integer, ForeignKey('safes.id'), primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), primary_key=True)
+    safe_id = Column(Integer, ForeignKey('safes.id', ondelete='CASCADE'), primary_key=True)
     user = relationship("User", back_populates='safes')
     safe = relationship("Safe", back_populates='users')
     access_level = Column(Integer)
+    ciphered_key = Column(String)
 
 #
 # class UserPasswordMetaAssociation(Base):

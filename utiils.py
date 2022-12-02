@@ -26,7 +26,7 @@ def get_all_user_groups(group: Group):
 def get_safe_from_user(user, safe_id):
     for safe in user['safes']:
         if safe['id'] == safe_id:
-            print(safe)
+            # print(safe)
             return safe
     else:
         return None

@@ -6,14 +6,15 @@ from sqlalchemy.orm import Session
 import models
 import schemas
 import crud
-from database import SessionLocal, engine, get_db
+from database import engine, get_db
 from auth import authenticate_user, create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES
-from auth import get_current_active_user, get_current_active_user_dict
+from auth import get_current_active_user
 from datetime import timedelta
 from typing import List
 
-from utiils import check_group_affiliation, get_safe_from_user
+from utiils import check_group_affiliation
 from exceptions import CrudException
+from common import access_levels
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -21,6 +22,7 @@ password_manager = FastAPI()
 
 origins = [
     "http://localhost:8080",
+    "https://trinket.pro"
 ]
 
 password_manager.add_middleware(
@@ -39,7 +41,7 @@ async def root():
 
 @password_manager.post("/api/users/", response_model=schemas.User)
 async def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
-    db_user = crud.get_user_by_login(db, login=user.login)
+    db_user = crud.get_user_by_login(db, login=user.email)
     if db_user:
         raise HTTPException(status_code=400, detail="Login already registered")
 
@@ -63,7 +65,7 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
         )
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
-        data={"sub": user.login}, expires_delta=access_token_expires
+        data={"sub": user.email}, expires_delta=access_token_expires
     )
     return {"access_token": access_token, "token_type": "bearer"}
 
@@ -74,25 +76,22 @@ async def create_safe(safe: schemas.SafeCreate, current_user: schemas.User = Dep
     return crud.create_safe(db, current_user.id, safe)
 
 
-@password_manager.get("/api/users/", response_model=List[schemas.UserIdLogin])
-async def get_all_users(db: Session = Depends(get_db)):
-    return crud.get_all_users(db)
+@password_manager.delete("/api/safes/{safe_id}")
+async def del_safe(safe_id: int,
+                   db: Session = Depends(get_db),
+                   current_user=Depends(get_current_active_user)):
+    access_level = crud.check_safe(db, safe_id, current_user.id)
+    if not access_level:
+        raise HTTPException(status_code=403, detail="This safe not belong current user")
 
-
-@password_manager.get("/api/users/me/key/", response_model=schemas.KeyReturn)
-async def get_my_key(current_user: schemas.User = Depends(get_current_active_user), db: Session = Depends(get_db)):
-    return crud.get_user_key(db, current_user.id)
-
-
-@password_manager.get("/api/users/{user_id}/key/", response_model=schemas.KeyReturn)
-async def get_user_key(user_id: int, db: Session = Depends(get_db)):
-    return crud.get_user_key(db, user_id)
+    if access_level > access_levels['own']:
+        return crud.delete_user_safe_association(db, safe_id, current_user.id)
+    else:
+        return crud.delete_safe(db, safe_id)
 
 
 @password_manager.get("/api/users/me/", response_model=schemas.User)
 async def read_users_me(current_user: schemas.User = Depends(get_current_active_user)):
-    # schema_user = schemas.User.from_orm(current_user)
-    # print(schema_user.dict())
     return current_user
 
 
@@ -100,15 +99,15 @@ async def read_users_me(current_user: schemas.User = Depends(get_current_active_
 async def create_group(group: schemas.GroupCreate,
                        safe_id: int,
                        db: Session = Depends(get_db),
-                       current_user: dict = Depends(get_current_active_user_dict)):
-
-    if safe_id not in [a['id'] for a in current_user['safes']]:
+                       current_user=Depends(get_current_active_user)):
+    access_level = crud.check_safe(db, safe_id, current_user.id)
+    if not access_level:
         raise HTTPException(status_code=403, detail="This safe not belong current user")
 
-    db_safe = crud.get_safe(db, safe_id)
+    if access_level > access_levels['read_write']:
+        raise HTTPException(status_code=401, detail="You can not write to this safe")
 
-    if not db_safe:
-        raise HTTPException(status_code=404, detail="The safe is not found!")
+    db_safe = crud.get_safe(db, safe_id)
 
     safe_root_group = crud.get_group(db, db_safe.root_group_id)
     if check_group_affiliation(safe_root_group, group.parent_id):
@@ -120,8 +119,9 @@ async def create_group(group: schemas.GroupCreate,
 @password_manager.get("/api/safes/{safe_id}/groups/", response_model=schemas.Group)
 async def read_groups_in_safe(safe_id: int,
                               db: Session = Depends(get_db),
-                              current_user: dict = Depends(get_current_active_user_dict)):
-    if safe_id not in [a['id'] for a in current_user['safes']]:
+                              current_user=Depends(get_current_active_user)):
+    access_level = crud.check_safe(db, safe_id, current_user.id)
+    if not access_level:
         raise HTTPException(status_code=403, detail="This safe not belong current user")
 
     db_safe = crud.get_safe(db, safe_id)
@@ -132,18 +132,34 @@ async def read_groups_in_safe(safe_id: int,
 @password_manager.get("/api/safes/{safe_id}/", response_model=schemas.Safe)
 async def read_safe(safe_id: int,
                     db: Session = Depends(get_db),
-                    current_user: dict = Depends(get_current_active_user_dict)):
-    if safe_id not in [a['id'] for a in current_user['safes']]:
+                    current_user=Depends(get_current_active_user)):
+    access_level = crud.check_safe(db, safe_id, current_user.id)
+    if not access_level:
         raise HTTPException(status_code=403, detail="This safe not belong current user")
 
-    return crud.get_safe(db, safe_id)
+    # db_safe = crud.get_safe(db, safe_id)
+    db_usa = crud.get_user_safe_association(db, safe_id, current_user.id)
+    # sym_key = crud.get_symmetric_key(db, current_user.key.id, safe_id)
+    s = schemas.Safe(id=db_usa.safe.id,
+                     title=db_usa.safe.title,
+                     description=db_usa.safe.description,
+                     root_group_id=db_usa.safe.root_group_id,
+                     access_level=db_usa.access_level,
+                     ciphered_key=db_usa.ciphered_key)
+    return s
+
+
+@password_manager.get("/api/safes/", response_model=List[schemas.SafeMinimal])
+async def read_user_safes(db: Session = Depends(get_db),
+                          current_user=Depends(get_current_active_user)):
+    return crud.get_user_safes(db, current_user.id)
 
 
 @password_manager.get("/api/safes/{safe_id}/passwords/", response_model=List[schemas.PasswordEntry])
-async def get_user_passwords(safe_id: int, current_user: dict = Depends(get_current_active_user_dict),
+async def get_user_passwords(safe_id: int, current_user=Depends(get_current_active_user),
                              db: Session = Depends(get_db)):
-
-    if safe_id not in [a['id'] for a in current_user['safes']]:
+    access_level = crud.check_safe(db, safe_id, current_user.id)
+    if not access_level:
         raise HTTPException(status_code=403, detail="This safe not belong current user")
 
     db_safe = crud.get_safe(db, safe_id)
@@ -151,26 +167,17 @@ async def get_user_passwords(safe_id: int, current_user: dict = Depends(get_curr
     return crud.get_user_passwords(db, root_safe_group)
 
 
-@password_manager.get("/api/safes/{safe_id}/symkey/", response_model=schemas.SymmetricKey)
-async def get_safe_symkey(safe_id: int,
-                          current_user: dict = Depends(get_current_active_user_dict),
-                          db: Session = Depends(get_db)):
-    if safe_id not in [a['id'] for a in current_user['safes']]:
-        raise HTTPException(status_code=403, detail="This safe not belong current user")
-
-    return crud.get_symmetric_key(db, current_user['key']['id'], safe_id)
-
-
 @password_manager.post("/api/safes/{safe_id}/passwords/", response_model=schemas.PasswordEntry)
 async def create_password(pwd: schemas.PasswordEntryCreate,
                           safe_id: int,
-                          current_user: dict = Depends(get_current_active_user_dict),
+                          current_user=Depends(get_current_active_user),
                           db: Session = Depends(get_db)):
 
-    safe = get_safe_from_user(current_user, safe_id)
-    if not safe:
+    access_level = crud.check_safe(db, safe_id, current_user.id)
+    if not access_level:
         raise HTTPException(status_code=403, detail="This safe not belong current user")
-    if safe['access_level'] != 10:
+
+    if access_level > access_levels['read_write']:
         raise HTTPException(status_code=401, detail="You can not write to this safe")
 
     pw_entry = crud.create_password(db, pwd, safe_id)
@@ -184,13 +191,14 @@ async def create_password(pwd: schemas.PasswordEntryCreate,
 async def update_password(pwd_id: int,
                           pwd: schemas.PasswordEntryUpdate,
                           safe_id: int,
-                          current_user: dict = Depends(get_current_active_user_dict),
+                          current_user=Depends(get_current_active_user),
                           db: Session = Depends(get_db)
                           ):
-    safe = get_safe_from_user(current_user, safe_id)
-    if not safe:
+    access_level = crud.check_safe(db, safe_id, current_user.id)
+    if not access_level:
         raise HTTPException(status_code=403, detail="This safe not belong current user")
-    if safe['access_level'] != 10:
+
+    if access_level > access_levels['read_write']:
         raise HTTPException(status_code=401, detail="You can not write to this safe")
 
     try:
@@ -203,16 +211,18 @@ async def update_password(pwd_id: int,
 async def update_group(group_id: int,
                        safe_id: int,
                        group: schemas.GroupUpdate,
-                       current_user: dict = Depends(get_current_active_user_dict),
+                       current_user=Depends(get_current_active_user),
                        db: Session = Depends(get_db)):
-    safe = get_safe_from_user(current_user, safe_id)
-    if not safe:
+    access_level = crud.check_safe(db, safe_id, current_user.id)
+    if not access_level:
         raise HTTPException(status_code=403, detail="This safe not belong current user")
-    if safe['access_level'] != 10:
+
+    if access_level > access_levels['read_write']:
         raise HTTPException(status_code=401, detail="You can not write to this safe")
 
+    db_safe = crud.get_safe(db, safe_id)
     try:
-        return crud.update_group_by_id(db, group_id, group, safe['root_group_id'])
+        return crud.update_group_by_id(db, group_id, group, db_safe.root_group_id)
     except CrudException as e:
         raise HTTPException(e.code, e.reason)
 
@@ -220,13 +230,15 @@ async def update_group(group_id: int,
 @password_manager.delete("/api/safes/{safe_id}/groups/{group_id}")
 async def delete_group(group_id: int,
                        safe_id: int,
-                       current_user: dict = Depends(get_current_active_user_dict),
+                       current_user=Depends(get_current_active_user),
                        db: Session = Depends(get_db)):
-    safe = get_safe_from_user(current_user, safe_id)
-    if not safe:
+    access_level = crud.check_safe(db, safe_id, current_user.id)
+    if not access_level:
         raise HTTPException(status_code=403, detail="This safe not belong current user")
-    if safe['access_level'] != 10:
+
+    if access_level > access_levels['read_write']:
         raise HTTPException(status_code=401, detail="You can not write to this safe")
+
     try:
         crud.delete_group(db, group_id)
         return "OK"
@@ -237,15 +249,54 @@ async def delete_group(group_id: int,
 @password_manager.delete("/api/safes/{safe_id}/passwords/{pwd_id}")
 async def delete_password(pwd_id: int,
                           safe_id: int,
-                          current_user: dict = Depends(get_current_active_user_dict),
+                          current_user=Depends(get_current_active_user),
                           db: Session = Depends(get_db)):
-    safe = get_safe_from_user(current_user, safe_id)
-    if not safe:
+    access_level = crud.check_safe(db, safe_id, current_user.id)
+    if not access_level:
         raise HTTPException(status_code=403, detail="This safe not belong current user")
-    if safe['access_level'] != 10:
+
+    if access_level > access_levels['read_write']:
         raise HTTPException(status_code=401, detail="You can not write to this safe")
+
     try:
         crud.delete_password(db, pwd_id)
         return "OK"
     except CrudException as e:
         raise HTTPException(e.code, e.reason)
+
+
+@password_manager.post("/api/safes/{safe_id}/share")
+async def share_safe(safe: schemas.SafeShare,
+                     safe_id: int,
+                     current_user=Depends(get_current_active_user),
+                     db: Session = Depends(get_db)):
+    access_level = crud.check_safe(db, safe_id, current_user.id)
+    if not access_level:
+        raise HTTPException(status_code=403, detail="This safe not belong current user")
+
+    if safe.access_level < access_level:
+        raise HTTPException(status_code=401, detail="You can not share this safe with this rights")
+
+    try:
+        crud.share_safe(db, safe_id, safe)
+        return "OK"
+    except CrudException as e:
+        raise HTTPException(e.code, e.reason)
+
+
+@password_manager.get("/api/safes/{safe_id}/share", response_model=List[schemas.UserShare])
+async def get_users_for_share(safe_id: int,
+                              current_user=Depends(get_current_active_user),
+                              db: Session = Depends(get_db)):
+
+    access_level = crud.check_safe(db, safe_id, current_user.id)
+    if not access_level:
+        raise HTTPException(status_code=403, detail="This safe not belong current user")
+
+    return crud.get_share_users(db, safe_id)
+
+
+@password_manager.get("/api/passwords/search", response_model=List[schemas.PasswordEntry])
+async def get_user_passwords(keyword_raw: str, current_user=Depends(get_current_active_user),
+                             db: Session = Depends(get_db)):
+    return crud.search_password_entry(db, keyword_raw, current_user.id)

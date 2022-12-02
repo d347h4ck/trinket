@@ -100,14 +100,28 @@ class SafeBase(BaseModel):
         orm_mode = True
 
 
-class Safe(SafeBase):
+class SafeMinimal(SafeBase):
     id: int
+    access_level: int
+
+
+class Safe(SafeMinimal):
     root_group_id: int
-    sym_key: List[SymKey]
+    ciphered_key: str
+    # sym_key: List[SymKey]
 
 
 class SafeCreate(SafeBase):
     ciphered_key: str
+
+
+class SafeShare(BaseModel):
+    ciphered_key: str
+    to_user: int
+    access_level: int
+
+    class Config:
+        orm_mode = True
 
 
 class UserSafe(BaseModel):
@@ -119,7 +133,7 @@ class UserSafe(BaseModel):
 
 
 class UserBase(BaseModel):
-    login: str
+    email: str
 
     class Config:
         orm_mode = True
@@ -136,24 +150,24 @@ class User(UserBase):
     id: int
     hashed_master_password: str
     key: Key
-    safes: List[UserSafe]
+    # safes: List[UserSafe]
     pwd_ts: datetime
 
-    def dict(self, **kwargs):
-        data = super(User, self).dict(**kwargs)
-        print(data)
-        for s in data['safes']:
-            s['id'] = s['safe']['id']
-            s['title'] = s['safe']['title']
-            s['description'] = s['safe']['description']
-            s['root_group_id'] = s['safe']['root_group_id']
-            for sym_key in s['safe']['sym_key']:
-                if sym_key['key_id'] == data['key']['id']:
-                    del sym_key['key_id']
-                    s['sym_key'] = sym_key['ciphered_key']
-            del s['safe']
-
-        return data
+    # def dict(self, **kwargs):
+    #     data = super(User, self).dict(**kwargs)
+    #     # print(data)
+    #     # for s in data['safes']:
+    #     #     s['id'] = s['safe']['id']
+    #     #     s['title'] = s['safe']['title']
+    #     #     s['description'] = s['safe']['description']
+    #     #     s['root_group_id'] = s['safe']['root_group_id']
+    #     #     for sym_key in s['safe']['sym_key']:
+    #     #         if sym_key['key_id'] == data['key']['id']:
+    #     #             del sym_key['key_id']
+    #     #             s['sym_key'] = sym_key['ciphered_key']
+    #     #     del s['safe']
+    #
+    #     return data
 
 
 class UserInDB(User):
@@ -166,6 +180,10 @@ class UserInDB(User):
 
 class UserIdLogin(UserBase):
     id: int
+
+
+class UserShare(UserIdLogin):
+    public_key: str
 
 
 class Token(BaseModel):
@@ -189,7 +207,6 @@ class GroupCreate(GroupBase):
 
 
 class GroupUpdate(GroupBase):
-    id: int
     parent_id: Optional[int]
 
 
@@ -199,7 +216,6 @@ class Group(GroupBase):
 
 
 class SymmetricKey(BaseModel):
-    iv: str
     ciphered_key: str
 
     class Config:
