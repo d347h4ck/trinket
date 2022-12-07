@@ -34,7 +34,7 @@ password_manager.add_middleware(
 )
 
 
-@password_manager.post("/users/", response_model=schemas.User)
+@password_manager.post("/api/users/", response_model=schemas.User)
 async def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
     db_user = crud.get_user_by_login(db, login=user.email)
     if db_user:
@@ -43,13 +43,13 @@ async def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
     return crud.create_user(db=db, user=user)
 
 
-@password_manager.get("/users/{user_id}", response_model=schemas.User)
+@password_manager.get("/api/users/{user_id}", response_model=schemas.User)
 async def get_user(user_id: int, db: Session = Depends(get_db)):
     db_user = crud.get_user(db, user_id)
     return db_user
 
 
-@password_manager.post("/token/", response_model=schemas.Token)
+@password_manager.post("/api/token/", response_model=schemas.Token)
 async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     user = authenticate_user(form_data.username, form_data.password, db)
     if not user:
@@ -65,13 +65,13 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
     return {"access_token": access_token, "token_type": "bearer"}
 
 
-@password_manager.post("/safes/", response_model=schemas.Safe)
+@password_manager.post("/api/safes/", response_model=schemas.Safe)
 async def create_safe(safe: schemas.SafeCreate, current_user: schemas.User = Depends(get_current_active_user),
                       db: Session = Depends(get_db)):
     return crud.create_safe(db, current_user.id, safe)
 
 
-@password_manager.delete("/safes/{safe_id}")
+@password_manager.delete("/api/safes/{safe_id}")
 async def del_safe(safe_id: int,
                    db: Session = Depends(get_db),
                    current_user=Depends(get_current_active_user)):
@@ -85,12 +85,12 @@ async def del_safe(safe_id: int,
         return crud.delete_safe(db, safe_id)
 
 
-@password_manager.get("/users/me/", response_model=schemas.User)
+@password_manager.get("/api/users/me/", response_model=schemas.User)
 async def read_users_me(current_user: schemas.User = Depends(get_current_active_user)):
     return current_user
 
 
-@password_manager.post("/safes/{safe_id}/groups/", response_model=schemas.Group)
+@password_manager.post("/api/safes/{safe_id}/groups/", response_model=schemas.Group)
 async def create_group(group: schemas.GroupCreate,
                        safe_id: int,
                        db: Session = Depends(get_db),
@@ -111,7 +111,7 @@ async def create_group(group: schemas.GroupCreate,
     raise HTTPException(status_code=400, detail="Wrong parent group id")
 
 
-@password_manager.get("/safes/{safe_id}/groups/", response_model=schemas.Group)
+@password_manager.get("/api/safes/{safe_id}/groups/", response_model=schemas.Group)
 async def read_groups_in_safe(safe_id: int,
                               db: Session = Depends(get_db),
                               current_user=Depends(get_current_active_user)):
@@ -124,7 +124,7 @@ async def read_groups_in_safe(safe_id: int,
     return safe_root_group
 
 
-@password_manager.get("/safes/{safe_id}/", response_model=schemas.Safe)
+@password_manager.get("/api/safes/{safe_id}/", response_model=schemas.Safe)
 async def read_safe(safe_id: int,
                     db: Session = Depends(get_db),
                     current_user=Depends(get_current_active_user)):
@@ -144,13 +144,13 @@ async def read_safe(safe_id: int,
     return s
 
 
-@password_manager.get("/safes/", response_model=List[schemas.SafeMinimal])
+@password_manager.get("/api/safes/", response_model=List[schemas.SafeMinimal])
 async def read_user_safes(db: Session = Depends(get_db),
                           current_user=Depends(get_current_active_user)):
     return crud.get_user_safes(db, current_user.id)
 
 
-@password_manager.get("/safes/{safe_id}/passwords/", response_model=List[schemas.PasswordEntry])
+@password_manager.get("/api/safes/{safe_id}/passwords/", response_model=List[schemas.PasswordEntry])
 async def get_user_passwords(safe_id: int, current_user=Depends(get_current_active_user),
                              db: Session = Depends(get_db)):
     access_level = crud.check_safe(db, safe_id, current_user.id)
@@ -162,7 +162,7 @@ async def get_user_passwords(safe_id: int, current_user=Depends(get_current_acti
     return crud.get_user_passwords(db, root_safe_group)
 
 
-@password_manager.post("/safes/{safe_id}/passwords/", response_model=schemas.PasswordEntry)
+@password_manager.post("/api/safes/{safe_id}/passwords/", response_model=schemas.PasswordEntry)
 async def create_password(pwd: schemas.PasswordEntryCreate,
                           safe_id: int,
                           current_user=Depends(get_current_active_user),
@@ -182,7 +182,7 @@ async def create_password(pwd: schemas.PasswordEntryCreate,
     return pw_entry
 
 
-@password_manager.put("/safes/{safe_id}/passwords/{pwd_id}", response_model=schemas.PasswordEntry)
+@password_manager.put("/api/safes/{safe_id}/passwords/{pwd_id}", response_model=schemas.PasswordEntry)
 async def update_password(pwd_id: int,
                           pwd: schemas.PasswordEntryUpdate,
                           safe_id: int,
@@ -202,7 +202,7 @@ async def update_password(pwd_id: int,
         raise HTTPException(e.code, e.reason)
 
 
-@password_manager.put("/safes/{safe_id}/groups/{group_id}", response_model=schemas.Group)
+@password_manager.put("/api/safes/{safe_id}/groups/{group_id}", response_model=schemas.Group)
 async def update_group(group_id: int,
                        safe_id: int,
                        group: schemas.GroupUpdate,
@@ -222,7 +222,7 @@ async def update_group(group_id: int,
         raise HTTPException(e.code, e.reason)
 
 
-@password_manager.delete("/safes/{safe_id}/groups/{group_id}")
+@password_manager.delete("/api/safes/{safe_id}/groups/{group_id}")
 async def delete_group(group_id: int,
                        safe_id: int,
                        current_user=Depends(get_current_active_user),
@@ -241,7 +241,7 @@ async def delete_group(group_id: int,
         raise HTTPException(e.code, e.reason)
 
 
-@password_manager.delete("/safes/{safe_id}/passwords/{pwd_id}")
+@password_manager.delete("/api/safes/{safe_id}/passwords/{pwd_id}")
 async def delete_password(pwd_id: int,
                           safe_id: int,
                           current_user=Depends(get_current_active_user),
@@ -260,7 +260,7 @@ async def delete_password(pwd_id: int,
         raise HTTPException(e.code, e.reason)
 
 
-@password_manager.post("/safes/{safe_id}/share")
+@password_manager.post("/api/safes/{safe_id}/share")
 async def share_safe(safe: schemas.SafeShare,
                      safe_id: int,
                      current_user=Depends(get_current_active_user),
@@ -279,7 +279,7 @@ async def share_safe(safe: schemas.SafeShare,
         raise HTTPException(e.code, e.reason)
 
 
-@password_manager.get("/safes/{safe_id}/share", response_model=List[schemas.UserShare])
+@password_manager.get("/api/safes/{safe_id}/share", response_model=List[schemas.UserShare])
 async def get_users_for_share(safe_id: int,
                               current_user=Depends(get_current_active_user),
                               db: Session = Depends(get_db)):
@@ -291,7 +291,7 @@ async def get_users_for_share(safe_id: int,
     return crud.get_share_users(db, safe_id)
 
 
-@password_manager.get("/passwords/search", response_model=List[schemas.PasswordEntry])
+@password_manager.get("/api/passwords/search", response_model=List[schemas.PasswordEntry])
 async def get_user_passwords(keyword_raw: str, current_user=Depends(get_current_active_user),
                              db: Session = Depends(get_db)):
     return crud.search_password_entry(db, keyword_raw, current_user.id)
